@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+	<head>
+		<TITLE>Encircling D3 Fisheye Distortion</TITLE>
+		<script type="text/javascript" src="https://d3js.org/d3.v3.min.js"></script>
+		<script type="text/javascript" src="fisheye.js"></script>
+		<style>
+			.background {
+				fill: none;
+				pointer-events: all;
+			}
+
+			/*
+			#chart1 {
+				width: 960px;
+				height: 600px;
+				border: solid 1px #ccc;
+			}
+			*/
+
+			#chart1 .circle {
+				stroke: #fff;
+				stroke-width: 1.5px;
+			}
+
+			#chart1 .link {
+				stroke: #999;
+				stroke-opacity: .6;
+				stroke-width: 1.5px;
+			}
+
+			text {
+				font: 12px sans-serif;
+				pointer-events: none;
+				text-anchor: start;
+			}
+
+			/* magnifier glass as circle */
+			.lens {
+				stroke: gray;
+				stroke-width: 2.0px;
+				stroke-opacity: 0;
+				fill: none;
+			}
+
+			/* magnifier glass as path */
+			.mag {
+				stroke: gray;
+				stroke-width: 2.0px;
+				stroke-opacity: 0;
+				fill: none;
+			}
+
+			/* magnifier handle as path */
+			.mag2 {
+				stroke: black;
+				stroke-width: 12.0px;
+				stroke-opacity: 0;
+				fill: none;
+			}
+		</style>
+	</head>
+	<body bgcolor="white">
+		<div id="chart1"></div>
+		<script>
+			var width = 960,
+				height = 600;
+
+			var color = d3.scale.category20();
+
+			var fisheye = d3.fisheye.circular()
+				.radius(100)
+				.distortion(5);
+
+			var force = d3.layout.force()
+				.charge(-440)
+				.linkDistance(60)
+				.size([width, height]);
+
+			var svg = d3.select("#chart1").append("svg")
+				.attr("width", width)
+				.attr("height", height);
+            let hoveredNode=null;
+
+			// specify angle where magnifier handle should "attach" to body
+			var omega = 0.78;
+
+			/*
+			svg.append("rect")
+				.attr("class", "background")
+				.attr("width", width)
+				.attr("height", height);
+			*/
+
+			d3.json("miserables.json", function(data) {
+				var n = data.nodes.length;
+
+				force.nodes(data.nodes).links(data.links);
+
+				// Initialize the positions deterministically, for better results.
+				data.nodes.forEach(function(d, i) { d.x = d.y = width / n * i; });
+
+				// Run the layout a fixed number of times.
+				// The ideal number of times scales with graph complexity.
+				// Of course, don't run too long—you'll hang the page!
+				force.start();
+				for (var i = n; i > 0; --i) force.tick();
+				force.stop();
+
+				// Center the nodes in the middle.
+				var ox = 0, oy = 0;
+				data.nodes.forEach(function(d) { ox += d.x, oy += d.y; });
+				ox = ox / n - width / 2, oy = oy / n - height / 2;
+				data.nodes.forEach(function(d) { d.x -= ox, d.y -= oy; });
+
+				var link = svg.selectAll(".link")
+					.data(data.links)
+				  .enter().append("line")
+					.attr("class", "link")
+					.attr("x1", function(d) { return d.source.x; })
+					.attr("y1", function(d) { return d.source.y; })
+					.attr("x2", function(d) { return d.target.x; })
+					.attr("y2", function(d) { return d.target.y; })
+					.style("stroke-width", function(d) { return Math.sqrt(d.value); });
+
+				var node = svg.selectAll(".node")
+					.data(data.nodes)
+				  .enter().append("g")
+					.attr("class", "node");
+
+				render("path");
+                
+
+
+				function render(shape) {
+					node.selectAll(".link").remove();
+					node.selectAll(".circle").remove();
+
+					var nodeEnter = node
+					  .append("circle")
+						.attr("class", "circle")
+						.attr("cx", function(d) { return d.x; })
+						.attr("cy", function(d) { return d.y; })
+						.attr("r", function(d) { return 4*(Math.abs(d.level-4)); })
+						.style("fill", function(d) { return color(d.group); })
+						.call(force.drag).on("mouseover", function(d, i){
+                            hoveredNode=d;
+                        }).on("mouseout", function(d, i){
+                            hoveredNode=null;
+                        });
+
+
+					svg.on("mousemove", function() {
+						fisheye.focus(d3.mouse(this));
+
+						var mouseX = d3.mouse(this)[0];
+						var mouseY = d3.mouse(this)[1];
+						var r = fisheye.radius();
+
+						nodeEnter.each(function(d) { 
+                            if(hoveredNode!=null){
+                                if(hoveredNode.group==d.group&&d.level>hoveredNode.level||d.id==hoveredNode.id){
+                                    d3.select(this.parentNode).selectAll(".mylabel").remove()
+                                    d3.select(this.parentNode).append("text")//appending it to path's parent which is the g(group) DOM
+                                    .attr("x", function() {
+                                        return (d.fisheye.x);
+                                    })
+                                    .attr("y", function() {
+                                        return (d.fisheye.y);
+                                    })
+                                    .attr("dx", "6") // margin
+                                    .attr("dy", ".35em") // vertical-align
+                                    .attr("class", "mylabel")//adding a label class
+                                    .text(function() {
+                                        return d.name;
+                                    });
+                                }
+                            }
+                            else{
+                                d3.select(this.parentNode).selectAll(".mylabel").remove()
+                            }
+                            d.fisheye = fisheye(d); })
+							.attr("cx", function(d) { return d.fisheye.x; })
+							.attr("cy", function(d) { return d.fisheye.y; })
+                            .attr("r", function(d) { return 4*(Math.abs(d.level-4)); });
+
+
+						link.attr("x1", function(d) { return d.source.fisheye.x; })
+							.attr("y1", function(d) { return d.source.fisheye.y; })
+							.attr("x2", function(d) { return d.target.fisheye.x; })
+							.attr("y2", function(d) { return d.target.fisheye.y; });
+					});
+				}
+			})
+		</script>
+	</body>
+</html>
